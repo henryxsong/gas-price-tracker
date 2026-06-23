@@ -64,7 +64,7 @@
           </span>
         </div>
         <div class="text-3xl font-bold text-white tracking-tight">
-          ${{ "%.3f"|format(bp.price) }}
+          ${{ ("%.3f"|format(bp.price))[:-1] }}<sup class="text-lg" style="vertical-align: 0.35em;">{{ ("%.3f"|format(bp.price))[-1] }}</sup>
         </div>
         <div class="text-xs text-gray-400 truncate">
           📍 {{ bp.station_name }}
@@ -116,7 +116,7 @@
             {% for ft in fuel_order %}
             <td class="px-4 py-3 text-right hidden sm:table-cell">
               {% if ft in s.prices %}
-              <span class="font-mono font-semibold text-white">${{ "%.3f"|format(s.prices[ft]) }}</span>
+              <span class="font-mono font-semibold text-white">${{ ("%.3f"|format(s.prices[ft]))[:-1] }}<sup>{{ ("%.3f"|format(s.prices[ft]))[-1] }}</sup></span>
               {% else %}
               <span class="text-gray-600">—</span>
               {% endif %}
