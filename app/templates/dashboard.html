@@ -67,7 +67,11 @@
           ${{ ("%.3f"|format(bp.price))[:-1] }}<sup class="text-lg" style="vertical-align: 0.35em;">{{ ("%.3f"|format(bp.price))[-1] }}</sup>
         </div>
         <div class="text-xs text-gray-400 truncate">
-          📍 {{ bp.station_name }}
+          📍 <a href="javascript:void(0)"
+               onclick="openMap({{ bp.station_name | tojson }}, {{ (bp.station_address or '') | tojson }})"
+               class="hover:text-blue-400 underline underline-offset-2 transition-colors">
+            {{ bp.station_name }}
+          </a>
         </div>
       </div>
       {% endfor %}
@@ -358,6 +362,17 @@ function applyLocalTimes() {
     const d = new Date(el.dataset.utc);
     if (!isNaN(d)) el.textContent = d.toLocaleString([], {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'});
   });
+}
+
+// ── Maps link ─────────────────────────────────────────────────────────────────
+function openMap(name, address) {
+  const query = address ? `${name}, ${address}` : name;
+  const encoded = encodeURIComponent(query);
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const url = isIOS
+    ? `https://maps.apple.com/?q=${encoded}`
+    : `https://maps.google.com/?q=${encoded}`;
+  window.open(url, '_blank');
 }
 
 // Load chart on page ready

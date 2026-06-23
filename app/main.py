@@ -221,7 +221,7 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db), user: 
     for s in stations_out:
         for ft, price in s["prices"].items():
             if ft not in best or price < best[ft]["price"]:
-                best[ft] = {"price": price, "station_name": s["name"], "station_id": s["id"]}
+                best[ft] = {"price": price, "station_name": s["name"], "station_id": s["id"], "station_address": s["address"]}
 
     fuel_order = ["regular", "midgrade", "premium", "diesel", "e85"]
     best_prices = [{"fuel_type": ft, **best[ft]} for ft in fuel_order if ft in best]
