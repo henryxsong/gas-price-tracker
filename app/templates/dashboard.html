@@ -1,0 +1,366 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — Gas Price Tracker{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div id="app">
+
+  <!-- ── Page header ─────────────────────────────────────────────────────── -->
+  <div class="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <div>
+      <h1 class="text-2xl font-bold text-white">Dashboard</h1>
+      <p class="text-sm text-gray-400 mt-0.5" id="refresh-status">
+        {% if next_refresh %}
+          Next auto-refresh: <span class="text-gray-300 js-local-time" data-utc="{{ next_refresh.isoformat() }}">{{ next_refresh.strftime('%H:%M UTC') }}</span>
+        {% elif refresh_enabled %}
+          Scheduling refresh…
+        {% else %}
+          Auto-refresh is disabled
+        {% endif %}
+      </p>
+    </div>
+    <button id="refresh-btn"
+            onclick="refreshAll()"
+            class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500
+                   text-white text-sm font-medium rounded-lg transition-colors">
+      <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none"
+           viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round"
+              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0
+                 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+      </svg>
+      Refresh Now
+    </button>
+  </div>
+
+  <!-- ── Best prices ─────────────────────────────────────────────────────── -->
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+      Best Prices Today
+    </h2>
+
+    {% if best_prices %}
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4" id="best-prices-grid">
+      {% set fuel_labels = {
+        'regular':  'Regular',
+        'midgrade': 'Mid-Grade',
+        'premium':  'Premium',
+        'diesel':   'Diesel',
+        'e85':      'E85'
+      } %}
+      {% for bp in best_prices %}
+      <div class="price-card fuel-{{ bp.fuel_type }} bg-gray-800 border rounded-xl p-5 flex flex-col gap-2">
+        <div class="flex items-center justify-between">
+          <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            {{ fuel_labels.get(bp.fuel_type, bp.fuel_type) }}
+          </span>
+          <span class="price-badge text-xs font-bold px-2 py-0.5 rounded-full text-gray-900">
+            BEST
+          </span>
+        </div>
+        <div class="text-3xl font-bold text-white tracking-tight">
+          ${{ "%.3f"|format(bp.price) }}
+        </div>
+        <div class="text-xs text-gray-400 truncate">
+          📍 {{ bp.station_name }}
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center text-gray-400">
+      <div class="text-4xl mb-3">⛽</div>
+      <p class="font-medium">No price data yet.</p>
+      <p class="text-sm mt-1">Click <strong>Refresh Now</strong> to fetch current prices,
+         or add stations in <a href="/settings" class="text-blue-400 hover:underline">Settings</a>.</p>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- ── Station prices table ────────────────────────────────────────────── -->
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
+      All Stations
+    </h2>
+
+    {% if stations %}
+    <div class="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-700 text-left">
+            <th class="px-4 py-3 text-gray-400 font-medium">Station</th>
+            {% for ft in fuel_order %}
+            {% set fuel_labels = {'regular':'Regular','midgrade':'Mid-Grade','premium':'Premium','diesel':'Diesel','e85':'E85'} %}
+            <th class="px-4 py-3 text-gray-400 font-medium text-right hidden sm:table-cell">
+              {{ fuel_labels.get(ft, ft) }}
+            </th>
+            {% endfor %}
+            <th class="px-4 py-3 text-gray-400 font-medium text-right">Updated</th>
+            <th class="px-4 py-3 w-10"></th>
+          </tr>
+        </thead>
+        <tbody id="stations-tbody">
+          {% for s in stations %}
+          <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
+            <td class="px-4 py-3">
+              <div class="font-medium text-white">{{ s.name }}</div>
+              {% if s.address %}
+              <div class="text-xs text-gray-500">{{ s.address }}</div>
+              {% endif %}
+            </td>
+            {% for ft in fuel_order %}
+            <td class="px-4 py-3 text-right hidden sm:table-cell">
+              {% if ft in s.prices %}
+              <span class="font-mono font-semibold text-white">${{ "%.3f"|format(s.prices[ft]) }}</span>
+              {% else %}
+              <span class="text-gray-600">—</span>
+              {% endif %}
+            </td>
+            {% endfor %}
+            <td class="px-4 py-3 text-right text-xs text-gray-500">
+              {% if s.last_updated %}
+              <span class="js-local-datetime" data-utc="{{ s.last_updated.isoformat() }}Z">{{ s.last_updated.strftime('%m/%d %H:%M') }}</span>
+              {% else %}
+              <span class="text-gray-600">never</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-3">
+              <button onclick="refreshStation({{ s.id }}, this)"
+                      title="Refresh this station"
+                      class="text-gray-500 hover:text-blue-400 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11
+                           11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-8 text-center text-gray-400">
+      <p>No stations configured.
+         <a href="/settings" class="text-blue-400 hover:underline">Add one in Settings →</a>
+      </p>
+    </div>
+    {% endif %}
+  </section>
+
+  <!-- ── Price history chart ─────────────────────────────────────────────── -->
+  <section>
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+        Price History
+      </h2>
+      <div class="flex gap-2 text-xs">
+        {% set fuel_labels = {'regular':'Regular','midgrade':'Mid-Grade','premium':'Premium','diesel':'Diesel','e85':'E85'} %}
+        {% for ft in fuel_order %}
+        <button onclick="toggleFuel('{{ ft }}')"
+                id="toggle-{{ ft }}"
+                class="px-2 py-1 rounded fuel-{{ ft }} border price-card transition-opacity opacity-100 text-white text-xs font-medium">
+          {{ fuel_labels.get(ft, ft) }}
+        </button>
+        {% endfor %}
+        <select id="history-days" onchange="loadHistory()" class="bg-gray-800 border border-gray-700 text-gray-300 text-xs rounded px-2 py-1">
+          <option value="7">7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+      </div>
+    </div>
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-4">
+      <canvas id="history-chart" height="120"></canvas>
+      <p id="chart-empty" class="text-center text-gray-500 text-sm py-8 hidden">
+        No history data yet — prices will appear here after the first refresh.
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Toast ───────────────────────────────────────────────────────────── -->
+  <div id="toast"
+       class="fixed bottom-6 right-6 bg-gray-800 border border-gray-700 text-white text-sm
+              px-4 py-3 rounded-lg shadow-lg transition-all duration-300 translate-y-20 opacity-0 pointer-events-none">
+  </div>
+
+</div><!-- /#app -->
+
+<script>
+const FUEL_COLORS = {
+  regular:  '#22c55e',
+  midgrade: '#eab308',
+  premium:  '#3b82f6',
+  diesel:   '#a78bfa',
+  e85:      '#f97316',
+};
+const FUEL_ORDER = {{ fuel_order | tojson }};
+let chart = null;
+let activeDatasets = new Set(FUEL_ORDER);
+let historyData = [];
+
+// ── Toast ────────────────────────────────────────────────────────────────────
+function showToast(msg, ok = true) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.toggle('border-green-700', ok);
+  t.classList.toggle('border-red-700', !ok);
+  t.classList.remove('translate-y-20', 'opacity-0');
+  t.classList.add('translate-y-0', 'opacity-100');
+  setTimeout(() => {
+    t.classList.add('translate-y-20', 'opacity-0');
+    t.classList.remove('translate-y-0', 'opacity-100');
+  }, 3500);
+}
+
+// ── Refresh all stations ─────────────────────────────────────────────────────
+async function refreshAll() {
+  const btn = document.getElementById('refresh-btn');
+  const icon = document.getElementById('refresh-icon');
+  btn.disabled = true;
+  icon.classList.add('spinner');
+
+  try {
+    const res = await fetch('/api/refresh', { method: 'POST' });
+    const data = await res.json();
+    const ok = data.filter(d => d.success).length;
+    const fail = data.length - ok;
+    showToast(`Refreshed ${ok} station(s)${fail ? ` · ${fail} failed` : ''}.`, fail === 0);
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showToast('Refresh failed: ' + e.message, false);
+  } finally {
+    btn.disabled = false;
+    icon.classList.remove('spinner');
+  }
+}
+
+// ── Refresh single station ────────────────────────────────────────────────────
+async function refreshStation(id, btn) {
+  const svg = btn.querySelector('svg');
+  svg.classList.add('spinner');
+  btn.disabled = true;
+
+  try {
+    const res = await fetch(`/api/stations/${id}/refresh`, { method: 'POST' });
+    const data = await res.json();
+    showToast(data.success ? `Updated ${data.prices_updated} price(s).` : `Error: ${data.error}`, data.success);
+    if (data.success) setTimeout(() => location.reload(), 600);
+  } catch (e) {
+    showToast('Error: ' + e.message, false);
+  } finally {
+    svg.classList.remove('spinner');
+    btn.disabled = false;
+  }
+}
+
+// ── History chart ─────────────────────────────────────────────────────────────
+async function loadHistory() {
+  const days = document.getElementById('history-days').value;
+  const res = await fetch(`/api/prices/history?days=${days}`);
+  historyData = await res.json();
+  renderChart();
+}
+
+function toggleFuel(ft) {
+  if (activeDatasets.has(ft)) {
+    activeDatasets.delete(ft);
+    document.getElementById(`toggle-${ft}`).classList.add('opacity-40');
+  } else {
+    activeDatasets.add(ft);
+    document.getElementById(`toggle-${ft}`).classList.remove('opacity-40');
+  }
+  renderChart();
+}
+
+function renderChart() {
+  const canvas = document.getElementById('history-chart');
+  const empty  = document.getElementById('chart-empty');
+
+  if (!historyData.length) {
+    canvas.style.display = 'none';
+    empty.classList.remove('hidden');
+    return;
+  }
+
+  canvas.style.display = '';
+  empty.classList.add('hidden');
+
+  // Group by station+fuel
+  const groups = {};
+  for (const row of historyData) {
+    const key = `${row.station_name} — ${row.fuel_type}`;
+    if (!groups[key]) groups[key] = { fuel_type: row.fuel_type, label: key, points: [] };
+    groups[key].points.push({ x: new Date(row.fetched_at + 'Z'), y: row.price });
+  }
+
+  const datasets = Object.values(groups)
+    .filter(g => activeDatasets.has(g.fuel_type))
+    .map(g => ({
+      label: g.label,
+      data: g.points,
+      borderColor: FUEL_COLORS[g.fuel_type] || '#9ca3af',
+      backgroundColor: (FUEL_COLORS[g.fuel_type] || '#9ca3af') + '22',
+      tension: 0.3,
+      pointRadius: 3,
+      fill: false,
+    }));
+
+  if (chart) chart.destroy();
+
+  chart = new Chart(canvas, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: '#9ca3af', boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: $${ctx.parsed.y.toFixed(3)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { tooltipFormat: 'MMM d, h:mm a', displayFormats: { hour: 'h:mm a', day: 'MMM d' } },
+          ticks: { color: '#6b7280', maxTicksLimit: 8 },
+          grid: { color: '#1f2937' },
+        },
+        y: {
+          ticks: {
+            color: '#6b7280',
+            callback: v => '$' + v.toFixed(2),
+          },
+          grid: { color: '#1f2937' },
+        },
+      },
+    },
+  });
+}
+
+// Format UTC timestamps into browser-local time
+function applyLocalTimes() {
+  document.querySelectorAll('.js-local-time').forEach(el => {
+    const d = new Date(el.dataset.utc);
+    if (!isNaN(d)) el.textContent = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+  });
+  document.querySelectorAll('.js-local-datetime').forEach(el => {
+    const d = new Date(el.dataset.utc);
+    if (!isNaN(d)) el.textContent = d.toLocaleString([], {month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'});
+  });
+}
+
+// Load chart on page ready
+document.addEventListener('DOMContentLoaded', () => { applyLocalTimes(); loadHistory(); });
+</script>
+{% endblock %}

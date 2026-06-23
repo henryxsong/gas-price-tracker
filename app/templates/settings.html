@@ -1,0 +1,547 @@
+{% extends "base.html" %}
+
+{% block title %}Settings — Gas Price Tracker{% endblock %}
+
+{% block content %}
+<div id="app">
+
+  <h1 class="text-2xl font-bold text-white mb-8">Settings</h1>
+
+  <!-- ── Gas Stations ───────────────────────────────────────────────────── -->
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Gas Stations</h2>
+
+    <!-- Existing stations -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden mb-4">
+      {% if stations %}
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-gray-700">
+            <th class="px-4 py-3 text-left text-gray-400 font-medium">Station</th>
+            <th class="px-4 py-3 text-left text-gray-400 font-medium hidden sm:table-cell">Type</th>
+            <th class="px-4 py-3 text-left text-gray-400 font-medium hidden sm:table-cell">Address</th>
+            <th class="px-4 py-3 text-center text-gray-400 font-medium">Active</th>
+            <th class="px-4 py-3 w-10"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in stations %}
+          <tr class="border-b border-gray-700/50" id="station-row-{{ s.id }}">
+            <td class="px-4 py-3 font-medium text-white">{{ s.name }}</td>
+            <td class="px-4 py-3 hidden sm:table-cell">
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium
+                {% if s.type == 'tulalip' %}bg-green-900/60 text-green-400
+                {% elif s.type == 'costco' %}bg-blue-900/60 text-blue-400
+                {% else %}bg-gray-700 text-gray-300{% endif %}">
+                {{ s.type }}
+              </span>
+            </td>
+            <td class="px-4 py-3 text-gray-400 text-xs hidden sm:table-cell">{{ s.address or '—' }}</td>
+            <td class="px-4 py-3 text-center">
+              <button onclick="toggleStation({{ s.id }}, this)"
+                      class="w-8 h-5 rounded-full transition-colors {% if s.enabled %}bg-blue-600{% else %}bg-gray-600{% endif %} relative"
+                      data-enabled="{{ 'true' if s.enabled else 'false' }}">
+                <span class="absolute top-0.5 {% if s.enabled %}right-0.5{% else %}left-0.5{% endif %} w-4 h-4 bg-white rounded-full shadow transition-all"></span>
+              </button>
+            </td>
+            <td class="px-4 py-3">
+              {% if s.type != 'tulalip' %}
+              <button onclick="deleteStation({{ s.id }}, '{{ s.name }}')"
+                      class="text-gray-500 hover:text-red-400 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none"
+                     viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round"
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5
+                           7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                </svg>
+              </button>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="px-4 py-6 text-gray-500 text-sm text-center">No stations yet.</p>
+      {% endif %}
+    </div>
+
+    <!-- Add station -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-5">
+      <h3 class="font-semibold text-white mb-4">Add Gas Station</h3>
+
+      <!-- Source tabs -->
+      <div class="flex gap-1 mb-5 bg-gray-900 rounded-lg p-1 w-fit">
+        <button id="tab-costco" onclick="switchTab('costco')"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors bg-gray-700 text-white">
+          Costco Warehouse
+        </button>
+        <button id="tab-gasbuddy" onclick="switchTab('gasbuddy')"
+                class="px-3 py-1.5 text-sm font-medium rounded-md transition-colors text-gray-400 hover:text-white">
+          GasBuddy Search
+        </button>
+      </div>
+
+      <!-- Costco panel -->
+      <div id="panel-costco">
+        <p class="text-xs text-gray-400 mb-3">
+          Enter the warehouse number from the Costco warehouse page URL — e.g.
+          <em>costco.com/warehouse-locations/<strong>-106</strong>.html</em> → enter <strong>106</strong>.
+        </p>
+        <div class="flex gap-2 mb-4">
+          <input id="costco-warehouse-num" type="number" min="1" placeholder="106"
+                 class="w-36 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                        placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                 onkeydown="if(event.key==='Enter') lookupCostco()" />
+          <button onclick="lookupCostco()"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+            Look Up
+          </button>
+        </div>
+        <div id="costco-results" class="hidden space-y-2"></div>
+      </div>
+
+      <!-- GasBuddy panel -->
+      <div id="panel-gasbuddy" class="hidden">
+        <p class="text-xs text-gray-400 mb-3">
+          Search for any station by name and location — e.g. <em>"Shell Marysville WA"</em>.
+          Results come from GasBuddy (user-submitted prices, not shown here).
+        </p>
+        <div class="flex gap-2 mb-4">
+          <input id="search-query" type="text" placeholder="Shell Marysville WA"
+                 class="flex-1 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                        placeholder-gray-600 focus:outline-none focus:border-blue-500"
+                 onkeydown="if(event.key==='Enter') searchStations()" />
+          <button onclick="searchStations()"
+                  class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+            Search
+          </button>
+        </div>
+        <div id="search-results" class="hidden space-y-2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Refresh Schedule ────────────────────────────────────────────────── -->
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Refresh Schedule</h2>
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
+
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="font-medium text-white">Auto-refresh</p>
+          <p class="text-xs text-gray-400">Automatically fetch prices on a schedule</p>
+        </div>
+        <button id="toggle-refresh-btn" onclick="toggleSetting('refresh_enabled')"
+                class="w-10 h-6 rounded-full transition-colors relative
+                       {% if settings.refresh_enabled %}bg-blue-600{% else %}bg-gray-600{% endif %}"
+                data-key="refresh_enabled" data-value="{{ 'true' if settings.refresh_enabled else 'false' }}">
+          <span class="absolute top-1 {% if settings.refresh_enabled %}right-1{% else %}left-1{% endif %} w-4 h-4 bg-white rounded-full shadow transition-all"></span>
+        </button>
+      </div>
+
+      <div>
+        <label class="block text-sm text-gray-300 mb-1">Interval</label>
+        <select id="refresh_interval_minutes"
+                class="bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-48 focus:outline-none focus:border-blue-500">
+          {% for val, label in [(15,'Every 15 min'),(30,'Every 30 min'),(60,'Every hour'),(120,'Every 2 hours'),(360,'Every 6 hours'),(720,'Every 12 hours'),(1440,'Once a day')] %}
+          <option value="{{ val }}" {% if settings.refresh_interval_minutes == val %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <button onclick="saveScheduleSettings()"
+              class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+        Save Schedule
+      </button>
+    </div>
+  </section>
+
+  <!-- ── Notifications ───────────────────────────────────────────────────── -->
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Notifications (NTFY)</h2>
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
+
+      <div class="flex items-center justify-between">
+        <div>
+          <p class="font-medium text-white">Enable notifications</p>
+          <p class="text-xs text-gray-400">Send price alerts via <a href="https://ntfy.sh" class="text-blue-400 hover:underline" target="_blank">ntfy.sh</a> or a self-hosted server</p>
+        </div>
+        <button onclick="toggleSetting('notifications_enabled')"
+                class="w-10 h-6 rounded-full transition-colors relative
+                       {% if settings.notifications_enabled %}bg-blue-600{% else %}bg-gray-600{% endif %}"
+                data-key="notifications_enabled" data-value="{{ 'true' if settings.notifications_enabled else 'false' }}">
+          <span class="absolute top-1 {% if settings.notifications_enabled %}right-1{% else %}left-1{% endif %} w-4 h-4 bg-white rounded-full shadow transition-all"></span>
+        </button>
+      </div>
+
+      <div class="grid sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm text-gray-300 mb-1">NTFY Server URL</label>
+          <input id="ntfy_server_url" type="url" value="{{ settings.ntfy_server_url }}"
+                 placeholder="https://ntfy.sh"
+                 class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                        placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+        </div>
+        <div>
+          <label class="block text-sm text-gray-300 mb-1">Topic</label>
+          <input id="ntfy_topic" type="text" value="{{ settings.ntfy_topic }}"
+                 placeholder="my-gas-prices"
+                 class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                        placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+        </div>
+        <div>
+          <label class="block text-sm text-gray-300 mb-1">Auth Token <span class="text-gray-500">(optional)</span></label>
+          <input id="ntfy_token" type="password" value="{{ settings.ntfy_token }}"
+                 placeholder="tk_…"
+                 class="w-full bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                        placeholder-gray-600 focus:outline-none focus:border-blue-500" />
+        </div>
+        <div>
+          <label class="block text-sm text-gray-300 mb-1">Daily summary schedule <span class="text-gray-500">(cron)</span></label>
+          <div class="flex gap-2">
+            <input id="notification_schedule" type="text" value="{{ settings.notification_schedule }}"
+                   placeholder="0 8 * * *"
+                   class="flex-1 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                          placeholder-gray-600 focus:outline-none focus:border-blue-500 font-mono" />
+            <select onchange="document.getElementById('notification_schedule').value=this.value"
+                    class="bg-gray-900 border border-gray-700 text-gray-400 text-xs rounded-lg px-2 py-2 focus:outline-none">
+              <option value="">presets</option>
+              <option value="0 7 * * *">7:00 AM daily</option>
+              <option value="0 8 * * *">8:00 AM daily</option>
+              <option value="0 12 * * *">12:00 PM daily</option>
+              <option value="0 17 * * *">5:00 PM daily</option>
+              <option value="0 8 * * 1-5">8:00 AM weekdays</option>
+            </select>
+          </div>
+          <p class="text-xs text-gray-500 mt-1">Times are UTC. Cron: minute hour day month weekday</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <input type="checkbox" id="notify_on_refresh"
+               {% if settings.notify_on_refresh %}checked{% endif %}
+               class="rounded bg-gray-900 border-gray-700 text-blue-600 focus:ring-blue-500" />
+        <label for="notify_on_refresh" class="text-sm text-gray-300">
+          Also send a summary after every auto-refresh
+        </label>
+      </div>
+
+      <div class="flex gap-3">
+        <button onclick="saveNotificationSettings()"
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+          Save Notifications
+        </button>
+        <button onclick="testNotification()"
+                class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium rounded-lg transition-colors">
+          Send Test
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Price Threshold Alerts ──────────────────────────────────────────── -->
+  <section class="mb-10">
+    <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-4">Price Threshold Alerts</h2>
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 space-y-4">
+      <p class="text-sm text-gray-400">
+        Get notified when any station's price drops <em>at or below</em> a threshold.
+      </p>
+
+      <div id="thresholds-list" class="space-y-2">
+        <!-- Populated by JS -->
+      </div>
+
+      <div class="flex flex-wrap gap-2 items-end">
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Fuel type</label>
+          <select id="new-threshold-fuel"
+                  class="bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+            <option value="regular">Regular</option>
+            <option value="midgrade">Mid-Grade</option>
+            <option value="premium">Premium</option>
+            <option value="diesel">Diesel</option>
+            <option value="e85">E85</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-gray-400 mb-1">Price ($)</label>
+          <input id="new-threshold-price" type="number" step="0.001" min="0" placeholder="4.199"
+                 class="w-32 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                        focus:outline-none focus:border-blue-500" />
+        </div>
+        <button onclick="addThreshold()"
+                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+          Add Alert
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Toast ──────────────────────────────────────────────────────────── -->
+  <div id="toast"
+       class="fixed bottom-6 right-6 bg-gray-800 border border-gray-700 text-white text-sm
+              px-4 py-3 rounded-lg shadow-lg transition-all duration-300 translate-y-20 opacity-0 pointer-events-none">
+  </div>
+
+</div>
+
+<script>
+// ── Shared state ──────────────────────────────────────────────────────────────
+let currentSettings = {{ settings | tojson }};
+// Coerce number strings from Jinja
+currentSettings.refresh_interval_minutes = parseInt(currentSettings.refresh_interval_minutes) || 60;
+
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function showToast(msg, ok = true) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `fixed bottom-6 right-6 text-white text-sm px-4 py-3 rounded-lg shadow-lg
+    transition-all duration-300 translate-y-0 opacity-100 bg-gray-800
+    ${ok ? 'border border-green-700' : 'border border-red-700'}`;
+  setTimeout(() => {
+    t.classList.add('translate-y-20', 'opacity-0');
+    t.classList.remove('translate-y-0', 'opacity-100');
+  }, 3500);
+}
+
+// ── Toggle bool setting (switch buttons) ──────────────────────────────────────
+function toggleSetting(key) {
+  currentSettings[key] = !currentSettings[key];
+  // Find all buttons with this key and update visual
+  document.querySelectorAll(`[data-key="${key}"]`).forEach(btn => {
+    const isOn = currentSettings[key];
+    btn.dataset.value = isOn ? 'true' : 'false';
+    btn.classList.toggle('bg-blue-600', isOn);
+    btn.classList.toggle('bg-gray-600', !isOn);
+    const knob = btn.querySelector('span');
+    knob.classList.toggle('right-1', isOn);
+    knob.classList.toggle('left-1', !isOn);
+  });
+}
+
+// ── Tab switching ─────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  ['costco', 'gasbuddy'].forEach(t => {
+    document.getElementById(`panel-${t}`).classList.toggle('hidden', t !== tab);
+    const btn = document.getElementById(`tab-${t}`);
+    btn.classList.toggle('bg-gray-700', t === tab);
+    btn.classList.toggle('text-white', t === tab);
+    btn.classList.toggle('text-gray-400', t !== tab);
+  });
+}
+
+// ── Costco warehouse lookup ───────────────────────────────────────────────────
+async function lookupCostco() {
+  const num = document.getElementById('costco-warehouse-num').value.trim();
+  if (!num) return;
+  const container = document.getElementById('costco-results');
+  container.innerHTML = '<p class="text-sm text-gray-400">Looking up warehouse…</p>';
+  container.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/stations/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: num, source: 'costco' }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const results = await res.json();
+
+    if (!results.length) {
+      container.innerHTML = '<p class="text-sm text-gray-400">No Costco warehouse found with that number, or it has no gas station.</p>';
+      return;
+    }
+
+    container.innerHTML = results.map(r => `
+      <div class="flex items-center justify-between gap-3 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3">
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-white truncate">${r.name}</p>
+          <p class="text-xs text-gray-400 truncate">${r.address}</p>
+          <p class="text-xs text-gray-500 mt-0.5">Prices fetched automatically via official Costco website</p>
+        </div>
+        <button onclick='addStation(${JSON.stringify(r)})'
+                class="shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors">
+          Add
+        </button>
+      </div>`).join('');
+  } catch (e) {
+    container.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
+  }
+}
+
+// ── Station search ────────────────────────────────────────────────────────────
+async function searchStations() {
+  const q = document.getElementById('search-query').value.trim();
+  if (!q) return;
+  const container = document.getElementById('search-results');
+  container.innerHTML = '<p class="text-sm text-gray-400">Searching…</p>';
+  container.classList.remove('hidden');
+
+  try {
+    const res = await fetch('/api/stations/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const results = await res.json();
+
+    if (!results.length) {
+      container.innerHTML = '<p class="text-sm text-gray-400">No stations found. Try a different search.</p>';
+      return;
+    }
+
+    container.innerHTML = results.map(r => {
+      const priceStr = Object.entries(r.prices || {})
+        .map(([ft, p]) => `${ft}: $${p.toFixed(3)}`)
+        .join(' · ') || 'No prices listed';
+      return `
+        <div class="flex items-center justify-between gap-3 bg-gray-900 border border-gray-700 rounded-lg px-4 py-3">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-white truncate">${r.name}</p>
+            <p class="text-xs text-gray-400 truncate">${r.address}</p>
+            <p class="text-xs text-gray-500 mt-0.5">${priceStr}</p>
+          </div>
+          <button onclick='addStation(${JSON.stringify(r)})'
+                  class="shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium rounded-lg transition-colors">
+            Add
+          </button>
+        </div>`;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = `<p class="text-sm text-red-400">Error: ${e.message}</p>`;
+  }
+}
+
+async function addStation(station) {
+  try {
+    const res = await fetch('/api/stations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: station.name,
+        type: station.type,
+        external_id: station.external_id,
+        address: station.address,
+      }),
+    });
+    if (res.status === 409) { showToast('Station already added.', false); return; }
+    if (!res.ok) throw new Error(await res.text());
+    showToast(`Added ${station.name}!`);
+    setTimeout(() => location.reload(), 800);
+  } catch (e) {
+    showToast('Error: ' + e.message, false);
+  }
+}
+
+async function deleteStation(id, name) {
+  if (!confirm(`Remove "${name}"?`)) return;
+  const res = await fetch(`/api/stations/${id}`, { method: 'DELETE' });
+  if (res.ok) {
+    document.getElementById(`station-row-${id}`)?.remove();
+    showToast(`Removed ${name}.`);
+  } else {
+    showToast('Failed to remove station.', false);
+  }
+}
+
+async function toggleStation(id, btn) {
+  const res = await fetch(`/api/stations/${id}/toggle`, { method: 'PATCH' });
+  const data = await res.json();
+  const isOn = data.enabled;
+  btn.classList.toggle('bg-blue-600', isOn);
+  btn.classList.toggle('bg-gray-600', !isOn);
+  const knob = btn.querySelector('span');
+  knob.classList.toggle('right-0.5', isOn);
+  knob.classList.toggle('left-0.5', !isOn);
+}
+
+// ── Save schedule ──────────────────────────────────────────────────────────────
+async function saveScheduleSettings() {
+  currentSettings.refresh_interval_minutes = parseInt(document.getElementById('refresh_interval_minutes').value);
+  await saveSettings('Schedule settings saved.');
+}
+
+// ── Save notifications ─────────────────────────────────────────────────────────
+async function saveNotificationSettings() {
+  currentSettings.ntfy_server_url      = document.getElementById('ntfy_server_url').value.trim();
+  currentSettings.ntfy_topic           = document.getElementById('ntfy_topic').value.trim();
+  currentSettings.ntfy_token           = document.getElementById('ntfy_token').value.trim();
+  currentSettings.notification_schedule = document.getElementById('notification_schedule').value.trim();
+  currentSettings.notify_on_refresh    = document.getElementById('notify_on_refresh').checked;
+  await saveSettings('Notification settings saved.');
+}
+
+async function saveSettings(successMsg) {
+  try {
+    const res = await fetch('/api/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(currentSettings),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    showToast(successMsg);
+  } catch (e) {
+    showToast('Save failed: ' + e.message, false);
+  }
+}
+
+async function testNotification() {
+  try {
+    const res = await fetch('/api/test-notification', { method: 'POST' });
+    if (!res.ok) {
+      const d = await res.json();
+      throw new Error(d.detail || 'Unknown error');
+    }
+    showToast('Test notification sent!');
+  } catch (e) {
+    showToast('Failed: ' + e.message, false);
+  }
+}
+
+// ── Thresholds ────────────────────────────────────────────────────────────────
+function renderThresholds() {
+  const list = document.getElementById('thresholds-list');
+  const thresholds = currentSettings.price_thresholds || [];
+  if (!thresholds.length) {
+    list.innerHTML = '<p class="text-sm text-gray-500">No alerts configured.</p>';
+    return;
+  }
+  const fuelLabel = { regular:'Regular', midgrade:'Mid-Grade', premium:'Premium', diesel:'Diesel', e85:'E85' };
+  list.innerHTML = thresholds.map((t, i) => `
+    <div class="flex items-center justify-between bg-gray-900 border border-gray-700 rounded-lg px-4 py-2.5">
+      <span class="text-sm text-white">
+        ${fuelLabel[t.fuel_type] || t.fuel_type} ≤ <strong>$${parseFloat(t.price).toFixed(3)}</strong>
+      </span>
+      <button onclick="removeThreshold(${i})" class="text-gray-500 hover:text-red-400 transition-colors text-lg leading-none">×</button>
+    </div>
+  `).join('');
+}
+
+function addThreshold() {
+  const fuel  = document.getElementById('new-threshold-fuel').value;
+  const price = parseFloat(document.getElementById('new-threshold-price').value);
+  if (!fuel || isNaN(price) || price <= 0) {
+    showToast('Enter a valid price.', false);
+    return;
+  }
+  currentSettings.price_thresholds = currentSettings.price_thresholds || [];
+  // Replace existing threshold for same fuel type
+  currentSettings.price_thresholds = currentSettings.price_thresholds.filter(t => t.fuel_type !== fuel);
+  currentSettings.price_thresholds.push({ fuel_type: fuel, price });
+  renderThresholds();
+  saveSettings('Price alert added.');
+  document.getElementById('new-threshold-price').value = '';
+}
+
+function removeThreshold(index) {
+  currentSettings.price_thresholds.splice(index, 1);
+  renderThresholds();
+  saveSettings('Price alert removed.');
+}
+
+// Init
+renderThresholds();
+</script>
+{% endblock %}

@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Gas Price Tracker{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            surface: '#111827',
+            card: '#1f2937',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { background: #0f172a; }
+    .fuel-regular  { --accent: #22c55e; }
+    .fuel-midgrade { --accent: #eab308; }
+    .fuel-premium  { --accent: #3b82f6; }
+    .fuel-diesel   { --accent: #a78bfa; }
+    .fuel-e85      { --accent: #f97316; }
+    .price-card { border-color: var(--accent, #374151); }
+    .price-badge { background: var(--accent, #374151); }
+    .spinner { animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body class="text-gray-100 min-h-screen">
+
+  <nav class="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
+    <div class="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+      <a href="/" class="flex items-center gap-2 font-bold text-lg text-white">
+        <span class="text-2xl">⛽</span>
+        <span>Gas Price Tracker</span>
+      </a>
+      <div class="flex gap-1">
+        <a href="/"
+           class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                  {% if active == 'dashboard' %}bg-gray-700 text-white{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %}">
+          Dashboard
+        </a>
+        <a href="/settings"
+           class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors
+                  {% if active == 'settings' %}bg-gray-700 text-white{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %}">
+          Settings
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-6xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+</body>
+</html>

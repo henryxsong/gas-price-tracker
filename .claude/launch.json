@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "gas-price-tracker",
+      "runtimeExecutable": "/Users/henrysong/Desktop/Dev/gas-price-tracker/start.sh",
+      "runtimeArgs": [],
+      "port": 8081
+    }
+  ]
+}
