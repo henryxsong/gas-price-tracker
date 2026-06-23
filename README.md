@@ -37,11 +37,11 @@ cp .env.example .env
 **2. Fill in `.env`**
 
 ```env
-PORT=8080
+PORT=9000
 GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your-client-secret
 SESSION_SECRET=<random 32-byte hex string>
-BASE_URL=http://localhost:8080
+BASE_URL=http://localhost:9000
 ```
 
 Generate a session secret:
@@ -51,7 +51,7 @@ python3 -c "import secrets; print(secrets.token_hex(32))"
 
 Set up Google OAuth at [console.cloud.google.com](https://console.cloud.google.com):
 - Application type: **Web application**
-- Authorized redirect URI: `http://localhost:8080/auth/callback`
+- Authorized redirect URI: `http://localhost:9000/auth/callback`
 
 **3. Run**
 
@@ -59,7 +59,7 @@ Set up Google OAuth at [console.cloud.google.com](https://console.cloud.google.c
 docker compose up -d
 ```
 
-The app is available at `http://localhost:8080`.
+The app is available at `http://localhost:9000`.
 
 ## Quick Start (Local)
 
