@@ -40,7 +40,7 @@
         <span class="text-2xl">⛽</span>
         <span>Gas Price Tracker</span>
       </a>
-      <div class="flex gap-1">
+      <div class="flex items-center gap-1">
         <a href="/"
            class="px-3 py-1.5 rounded-md text-sm font-medium transition-colors
                   {% if active == 'dashboard' %}bg-gray-700 text-white{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %}">
@@ -51,6 +51,18 @@
                   {% if active == 'settings' %}bg-gray-700 text-white{% else %}text-gray-400 hover:text-white hover:bg-gray-800{% endif %}">
           Settings
         </a>
+        {% if user %}
+        <div class="ml-3 pl-3 border-l border-gray-700 flex items-center gap-2">
+          {% if user.picture %}
+          <img src="{{ user.picture }}" alt="{{ user.name }}" class="w-7 h-7 rounded-full" referrerpolicy="no-referrer"/>
+          {% endif %}
+          <span class="text-xs text-gray-400 hidden sm:inline">{{ user.name }}</span>
+          <a href="/auth/logout"
+             class="px-2 py-1 rounded text-xs text-gray-500 hover:text-white hover:bg-gray-800 transition-colors">
+            Sign out
+          </a>
+        </div>
+        {% endif %}
       </div>
     </div>
   </nav>

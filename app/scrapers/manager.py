@@ -38,9 +38,12 @@ async def refresh_station(station: Station) -> tuple[list[PriceResult], str | No
         return [], str(exc)
 
 
-async def refresh_all(db: AsyncSession) -> list[dict]:
-    """Refresh prices for all enabled stations. Returns a status list."""
-    result = await db.execute(select(Station).where(Station.enabled == True))
+async def refresh_all(db: AsyncSession, user_id: int | None = None) -> list[dict]:
+    """Refresh prices for all enabled stations. Pass user_id to restrict to one user."""
+    q = select(Station).where(Station.enabled == True)
+    if user_id is not None:
+        q = q.where(Station.user_id == user_id)
+    result = await db.execute(q)
     stations = result.scalars().all()
 
     statuses = []

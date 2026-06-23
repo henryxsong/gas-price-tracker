@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from models import GasPrice, Station, AppSetting
+from models import GasPrice, Station, User, UserSetting
 
 FUEL_EMOJI = {
     "regular": "⛽",
@@ -15,11 +15,10 @@ FUEL_EMOJI = {
 }
 
 
-async def _get_settings(db: AsyncSession) -> dict:
-    result = await db.execute(select(AppSetting).where(AppSetting.key == "app_settings"))
-    row = result.scalar_one_or_none()
-    if row:
-        return json.loads(row.value)
+async def _get_settings(db: AsyncSession, user: User) -> dict:
+    await db.refresh(user, ["setting"])
+    if user.setting:
+        return json.loads(user.setting.value)
     return {}
 
 
@@ -49,14 +48,16 @@ async def send_ntfy(
         resp.raise_for_status()
 
 
-async def _latest_prices(db: AsyncSession) -> list[tuple[str, str, float, datetime]]:
-    """Return (station_name, fuel_type, price, fetched_at) for the most recent entry per station+fuel."""
+async def _latest_prices(db: AsyncSession, user_id: int) -> list[tuple[str, str, float, datetime]]:
+    """Return (station_name, fuel_type, price, fetched_at) for the most recent entry per station+fuel for a user."""
     subq = (
         select(
             GasPrice.station_id,
             GasPrice.fuel_type,
             func.max(GasPrice.fetched_at).label("max_at"),
         )
+        .join(Station, GasPrice.station_id == Station.id)
+        .where(Station.user_id == user_id)
         .group_by(GasPrice.station_id, GasPrice.fuel_type)
         .subquery()
     )
@@ -69,29 +70,28 @@ async def _latest_prices(db: AsyncSession) -> list[tuple[str, str, float, dateti
             & (GasPrice.fuel_type == subq.c.fuel_type)
             & (GasPrice.fetched_at == subq.c.max_at),
         )
-        .where(Station.enabled == True)
+        .where(Station.user_id == user_id, Station.enabled == True)
         .order_by(GasPrice.fuel_type, GasPrice.price)
     )
     rows = await db.execute(q)
     return rows.all()
 
 
-async def send_daily_summary(db: AsyncSession) -> None:
-    settings = await _get_settings(db)
+async def send_daily_summary(db: AsyncSession, user: User) -> None:
+    settings = await _get_settings(db, user)
     if not settings.get("notifications_enabled"):
         return
 
-    prices = await _latest_prices(db)
+    prices = await _latest_prices(db, user.id)
     if not prices:
         return
 
-    # Build best-price-per-fuel-type summary
     best: dict[str, tuple[str, float]] = {}
     for station_name, fuel_type, price, _ in prices:
         if fuel_type not in best or price < best[fuel_type][1]:
             best[fuel_type] = (station_name, price)
 
-    lines = ["📊 Today's Best Gas Prices\n"]
+    lines = ["Today's Best Gas Prices\n"]
     for fuel_type in ("regular", "midgrade", "premium", "diesel", "e85"):
         if fuel_type in best:
             station, price = best[fuel_type]
@@ -109,8 +109,8 @@ async def send_daily_summary(db: AsyncSession) -> None:
     )
 
 
-async def check_and_notify_thresholds(db: AsyncSession) -> None:
-    settings = await _get_settings(db)
+async def check_and_notify_thresholds(db: AsyncSession, user: User) -> None:
+    settings = await _get_settings(db, user)
     if not settings.get("notifications_enabled"):
         return
 
@@ -118,7 +118,7 @@ async def check_and_notify_thresholds(db: AsyncSession) -> None:
     if not thresholds:
         return
 
-    prices = await _latest_prices(db)
+    prices = await _latest_prices(db, user.id)
     alerts: list[str] = []
 
     for threshold in thresholds:
@@ -140,7 +140,7 @@ async def check_and_notify_thresholds(db: AsyncSession) -> None:
     await send_ntfy(
         server_url=settings.get("ntfy_server_url", "https://ntfy.sh"),
         topic=settings.get("ntfy_topic", ""),
-        title="⚠️ Gas Price Alert",
+        title="Gas Price Alert",
         message="Price threshold reached!\n\n" + "\n".join(alerts),
         priority="high",
         token=settings.get("ntfy_token") or None,

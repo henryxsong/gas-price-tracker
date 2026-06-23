@@ -6,30 +6,50 @@ from apscheduler.triggers.interval import IntervalTrigger
 logger = logging.getLogger(__name__)
 _scheduler = AsyncIOScheduler(timezone="UTC")
 
-REFRESH_JOB_ID = "price_refresh"
-NOTIFY_JOB_ID = "scheduled_notification"
+
+def refresh_job_id(user_id: int) -> str:
+    return f"refresh_user_{user_id}"
 
 
-async def _do_refresh() -> None:
+def notify_job_id(user_id: int) -> str:
+    return f"notify_user_{user_id}"
+
+
+async def _do_refresh_user(user_id: int) -> None:
     from database import AsyncSessionLocal
+    from models import User
+    from sqlalchemy import select
     from scrapers.manager import refresh_all
-    from notifications import check_and_notify_thresholds, _get_settings, send_daily_summary
+    from notifications import check_and_notify_thresholds, send_daily_summary
 
     async with AsyncSessionLocal() as db:
-        statuses = await refresh_all(db)
-        logger.info("Scheduled refresh: %s", statuses)
-        settings = await _get_settings(db)
+        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if not user:
+            return
+
+        statuses = await refresh_all(db, user_id=user_id)
+        logger.info("Scheduled refresh for user %d: %s", user_id, statuses)
+
+        import json
+        from models import UserSetting
+        await db.refresh(user, ["setting"])
+        settings = json.loads(user.setting.value) if user.setting else {}
+
         if settings.get("notify_on_refresh") and settings.get("notifications_enabled"):
-            await send_daily_summary(db)
-        await check_and_notify_thresholds(db)
+            await send_daily_summary(db, user)
+        await check_and_notify_thresholds(db, user)
 
 
-async def _do_notify() -> None:
+async def _do_notify_user(user_id: int) -> None:
     from database import AsyncSessionLocal
+    from models import User
+    from sqlalchemy import select
     from notifications import send_daily_summary
 
     async with AsyncSessionLocal() as db:
-        await send_daily_summary(db)
+        user = (await db.execute(select(User).where(User.id == user_id))).scalar_one_or_none()
+        if user:
+            await send_daily_summary(db, user)
 
 
 def get_scheduler() -> AsyncIOScheduler:
@@ -45,26 +65,29 @@ def stop() -> None:
         _scheduler.shutdown(wait=False)
 
 
-def update_refresh_job(interval_minutes: int, enabled: bool) -> None:
+def update_user_refresh_job(user_id: int, interval_minutes: int, enabled: bool) -> None:
+    job_id = refresh_job_id(user_id)
     try:
-        _scheduler.remove_job(REFRESH_JOB_ID)
+        _scheduler.remove_job(job_id)
     except Exception:
         pass
 
     if enabled and interval_minutes > 0:
         _scheduler.add_job(
-            _do_refresh,
+            _do_refresh_user,
             IntervalTrigger(minutes=interval_minutes),
-            id=REFRESH_JOB_ID,
+            args=[user_id],
+            id=job_id,
             replace_existing=True,
             misfire_grace_time=60,
         )
-        logger.info("Refresh job scheduled every %d minutes", interval_minutes)
+        logger.info("Refresh job scheduled for user %d every %d minutes", user_id, interval_minutes)
 
 
-def update_notification_job(cron_expr: str, enabled: bool) -> None:
+def update_user_notification_job(user_id: int, cron_expr: str, enabled: bool) -> None:
+    job_id = notify_job_id(user_id)
     try:
-        _scheduler.remove_job(NOTIFY_JOB_ID)
+        _scheduler.remove_job(job_id)
     except Exception:
         pass
 
@@ -73,21 +96,16 @@ def update_notification_job(cron_expr: str, enabled: bool) -> None:
 
     parts = cron_expr.strip().split()
     if len(parts) != 5:
-        logger.warning("Invalid cron expression: %s", cron_expr)
+        logger.warning("Invalid cron expression for user %d: %s", user_id, cron_expr)
         return
 
     minute, hour, day, month, day_of_week = parts
     _scheduler.add_job(
-        _do_notify,
-        CronTrigger(
-            minute=minute,
-            hour=hour,
-            day=day,
-            month=month,
-            day_of_week=day_of_week,
-        ),
-        id=NOTIFY_JOB_ID,
+        _do_notify_user,
+        CronTrigger(minute=minute, hour=hour, day=day, month=month, day_of_week=day_of_week),
+        args=[user_id],
+        id=job_id,
         replace_existing=True,
         misfire_grace_time=300,
     )
-    logger.info("Notification job scheduled: %s", cron_expr)
+    logger.info("Notification job scheduled for user %d: %s", user_id, cron_expr)

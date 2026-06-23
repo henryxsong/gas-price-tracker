@@ -5,15 +5,18 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.middleware.sessions import SessionMiddleware
 
 import scheduler as sched
+from auth import get_current_user, handle_callback, login_redirect
+from config import settings
 from database import AsyncSessionLocal, get_db, init_db
-from models import AppSetting, GasPrice, Station
+from models import GasPrice, Station, User, UserSetting
 from notifications import check_and_notify_thresholds, send_daily_summary, send_ntfy
 from schemas import (
     AppSettingsSchema,
@@ -33,56 +36,67 @@ logger = logging.getLogger(__name__)
 DEFAULT_SETTINGS = AppSettingsSchema()
 
 
-async def _load_settings(db: AsyncSession) -> dict:
-    row = (await db.execute(select(AppSetting).where(AppSetting.key == "app_settings"))).scalar_one_or_none()
-    if row:
-        return json.loads(row.value)
+# ── Per-user settings helpers ─────────────────────────────────────────────────
+
+async def _load_settings(db: AsyncSession, user: User) -> dict:
+    await db.refresh(user, ["setting"])
+    if user.setting:
+        return json.loads(user.setting.value)
     return DEFAULT_SETTINGS.model_dump()
 
 
-async def _save_settings(db: AsyncSession, data: dict) -> None:
-    row = (await db.execute(select(AppSetting).where(AppSetting.key == "app_settings"))).scalar_one_or_none()
-    if row:
-        row.value = json.dumps(data)
+async def _save_settings(db: AsyncSession, user: User, data: dict) -> None:
+    await db.refresh(user, ["setting"])
+    if user.setting:
+        user.setting.value = json.dumps(data)
     else:
-        db.add(AppSetting(key="app_settings", value=json.dumps(data)))
+        db.add(UserSetting(user_id=user.id, value=json.dumps(data)))
     await db.commit()
 
 
-async def _setup_default_station(db: AsyncSession) -> None:
-    """Add Tulalip Market as the default station on first run."""
-    existing = (await db.execute(select(Station).where(Station.type == "tulalip"))).scalar_one_or_none()
-    if not existing:
-        db.add(Station(
-            name="Tulalip Market",
-            type="tulalip",
-            address="Marysville, WA",
-            enabled=True,
-        ))
-        await db.commit()
+# ── Auth guard helpers ────────────────────────────────────────────────────────
 
+async def _require_user(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    """Dependency for page routes — redirects to /login if not authenticated."""
+    user = await get_current_user(request, db)
+    if user is None:
+        raise HTTPException(status_code=307, headers={"Location": "/login"})
+    return user
+
+
+async def _require_user_api(request: Request, db: AsyncSession = Depends(get_db)) -> User:
+    """Dependency for API routes — returns 401 JSON if not authenticated."""
+    user = await get_current_user(request, db)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    return user
+
+
+# ── Lifespan ─────────────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+
+    # Restore per-user scheduler jobs for all existing users
     async with AsyncSessionLocal() as db:
-        await _setup_default_station(db)
-        settings = await _load_settings(db)
+        users = (await db.execute(select(User))).scalars().all()
+        for user in users:
+            s = await _load_settings(db, user)
+            sched.update_user_refresh_job(user.id, s.get("refresh_interval_minutes", 60), s.get("refresh_enabled", True))
+            sched.update_user_notification_job(user.id, s.get("notification_schedule", "0 8 * * *"), s.get("notifications_enabled", False))
 
     sched.start()
-    sched.update_refresh_job(
-        settings.get("refresh_interval_minutes", 60),
-        settings.get("refresh_enabled", True),
-    )
-    sched.update_notification_job(
-        settings.get("notification_schedule", "0 8 * * *"),
-        settings.get("notifications_enabled", False),
-    )
     yield
     sched.stop()
 
 
 app = FastAPI(title="Gas Price Tracker", lifespan=lifespan)
+
+# SessionMiddleware must be added before @app.middleware("http") decorators
+# so that request.session is populated before auth checks run.
+app.add_middleware(SessionMiddleware, secret_key=settings.session_secret, max_age=86400 * 30)
+
 templates = Jinja2Templates(directory="templates")
 
 try:
@@ -91,16 +105,18 @@ except Exception:
     pass
 
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-async def _latest_prices_map(db: AsyncSession) -> dict[int, dict[str, float]]:
-    """Return {station_id: {fuel_type: price}} using only the most recent fetch per station+fuel."""
+async def _latest_prices_map(db: AsyncSession, user_id: int) -> dict[int, dict]:
+    """Return {station_id: {prices: {fuel: price}, last_updated: dt}} for a user's stations."""
     subq = (
         select(
             GasPrice.station_id,
             GasPrice.fuel_type,
             func.max(GasPrice.fetched_at).label("max_at"),
         )
+        .join(Station, GasPrice.station_id == Station.id)
+        .where(Station.user_id == user_id)
         .group_by(GasPrice.station_id, GasPrice.fuel_type)
         .subquery()
     )
@@ -123,14 +139,52 @@ async def _latest_prices_map(db: AsyncSession) -> dict[int, dict[str, float]]:
     return result
 
 
+# ── Auth routes ───────────────────────────────────────────────────────────────
+
+@app.get("/login", response_class=HTMLResponse)
+async def login_page(request: Request, error: Optional[str] = None):
+    if request.session.get("user_id"):
+        return RedirectResponse("/")
+    return templates.TemplateResponse(request, "login.html", {"error": error})
+
+
+@app.get("/auth/login")
+async def auth_login(request: Request):
+    return login_redirect(request)
+
+
+@app.get("/auth/callback")
+async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
+    try:
+        response = await handle_callback(request, db)
+        # Set up scheduler jobs for the newly logged-in user
+        user = await get_current_user(request, db)
+        if user:
+            s = await _load_settings(db, user)
+            sched.update_user_refresh_job(user.id, s.get("refresh_interval_minutes", 60), s.get("refresh_enabled", True))
+            sched.update_user_notification_job(user.id, s.get("notification_schedule", "0 8 * * *"), s.get("notifications_enabled", False))
+        return response
+    except Exception as exc:
+        logger.exception("OAuth callback error: %s", exc)
+        return RedirectResponse("/login?error=1")
+
+
+@app.get("/auth/logout")
+async def auth_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/login")
+
+
 # ── Pages ─────────────────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
-    stations_q = await db.execute(select(Station).where(Station.enabled == True))
+async def dashboard(request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user)):
+    stations_q = await db.execute(
+        select(Station).where(Station.user_id == user.id, Station.enabled == True)
+    )
     stations = stations_q.scalars().all()
 
-    latest = await _latest_prices_map(db)
+    latest = await _latest_prices_map(db, user.id)
 
     stations_out = []
     for s in stations:
@@ -144,7 +198,6 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
             "last_updated": info.get("last_updated"),
         })
 
-    # Best price per fuel type
     best: dict[str, dict] = {}
     for s in stations_out:
         for ft, price in s["prices"].items():
@@ -152,41 +205,39 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db)):
                 best[ft] = {"price": price, "station_name": s["name"], "station_id": s["id"]}
 
     fuel_order = ["regular", "midgrade", "premium", "diesel", "e85"]
-    best_prices = [
-        {"fuel_type": ft, **best[ft]}
-        for ft in fuel_order
-        if ft in best
-    ]
+    best_prices = [{"fuel_type": ft, **best[ft]} for ft in fuel_order if ft in best]
 
-    settings = await _load_settings(db)
-    next_job = sched.get_scheduler().get_job(sched.REFRESH_JOB_ID)
+    s_settings = await _load_settings(db, user)
+    next_job = sched.get_scheduler().get_job(sched.refresh_job_id(user.id))
     next_refresh = next_job.next_run_time if next_job else None
 
     return templates.TemplateResponse(
         request,
         "dashboard.html",
         {
+            "user": user,
             "stations": stations_out,
             "best_prices": best_prices,
             "fuel_order": fuel_order,
             "next_refresh": next_refresh,
-            "refresh_enabled": settings.get("refresh_enabled", True),
+            "refresh_enabled": s_settings.get("refresh_enabled", True),
             "active": "dashboard",
         },
     )
 
 
 @app.get("/settings", response_class=HTMLResponse)
-async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
-    settings = await _load_settings(db)
-    stations_q = await db.execute(select(Station))
+async def settings_page(request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user)):
+    s = await _load_settings(db, user)
+    stations_q = await db.execute(select(Station).where(Station.user_id == user.id))
     stations = stations_q.scalars().all()
     return templates.TemplateResponse(
         request,
         "settings.html",
         {
-            "settings": settings,
-            "stations": [{"id": s.id, "name": s.name, "type": s.type, "address": s.address, "enabled": s.enabled} for s in stations],
+            "user": user,
+            "settings": s,
+            "stations": [{"id": st.id, "name": st.name, "type": st.type, "address": st.address, "enabled": st.enabled} for st in stations],
             "active": "settings",
         },
     )
@@ -195,9 +246,9 @@ async def settings_page(request: Request, db: AsyncSession = Depends(get_db)):
 # ── API — Stations ────────────────────────────────────────────────────────────
 
 @app.get("/api/stations")
-async def api_stations(db: AsyncSession = Depends(get_db)):
-    rows = (await db.execute(select(Station))).scalars().all()
-    latest = await _latest_prices_map(db)
+async def api_stations(db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    rows = (await db.execute(select(Station).where(Station.user_id == user.id))).scalars().all()
+    latest = await _latest_prices_map(db, user.id)
     return [
         {
             "id": s.id,
@@ -213,17 +264,11 @@ async def api_stations(db: AsyncSession = Depends(get_db)):
 
 
 @app.post("/api/stations/search")
-async def api_search_stations(body: StationSearchRequest):
+async def api_search_stations(body: StationSearchRequest, user: User = Depends(_require_user_api)):
     try:
         results = await search_stations(body.query, source=body.source)
         return [
-            {
-                "external_id": r.external_id,
-                "name": r.name,
-                "address": r.address,
-                "type": r.type,
-                "prices": r.prices,
-            }
+            {"external_id": r.external_id, "name": r.name, "address": r.address, "type": r.type, "prices": r.prices}
             for r in results
         ]
     except Exception as exc:
@@ -231,11 +276,12 @@ async def api_search_stations(body: StationSearchRequest):
 
 
 @app.post("/api/stations", status_code=201)
-async def api_add_station(body: StationCreate, db: AsyncSession = Depends(get_db)):
+async def api_add_station(body: StationCreate, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
     existing = (
         await db.execute(
             select(Station).where(
-                (Station.external_id == body.external_id) if body.external_id else (Station.name == body.name)
+                Station.user_id == user.id,
+                (Station.external_id == body.external_id) if body.external_id else (Station.name == body.name),
             )
         )
     ).scalar_one_or_none()
@@ -243,6 +289,7 @@ async def api_add_station(body: StationCreate, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=409, detail="Station already exists")
 
     station = Station(
+        user_id=user.id,
         name=body.name,
         type=body.type,
         external_id=body.external_id,
@@ -253,7 +300,6 @@ async def api_add_station(body: StationCreate, db: AsyncSession = Depends(get_db
     await db.commit()
     await db.refresh(station)
 
-    # Fetch prices immediately in the background
     try:
         prices, error = await refresh_station(station)
         if prices:
@@ -268,8 +314,10 @@ async def api_add_station(body: StationCreate, db: AsyncSession = Depends(get_db
 
 
 @app.delete("/api/stations/{station_id}", status_code=204)
-async def api_delete_station(station_id: int, db: AsyncSession = Depends(get_db)):
-    station = (await db.execute(select(Station).where(Station.id == station_id))).scalar_one_or_none()
+async def api_delete_station(station_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    station = (await db.execute(
+        select(Station).where(Station.id == station_id, Station.user_id == user.id)
+    )).scalar_one_or_none()
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
     await db.delete(station)
@@ -277,8 +325,10 @@ async def api_delete_station(station_id: int, db: AsyncSession = Depends(get_db)
 
 
 @app.patch("/api/stations/{station_id}/toggle", status_code=200)
-async def api_toggle_station(station_id: int, db: AsyncSession = Depends(get_db)):
-    station = (await db.execute(select(Station).where(Station.id == station_id))).scalar_one_or_none()
+async def api_toggle_station(station_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    station = (await db.execute(
+        select(Station).where(Station.id == station_id, Station.user_id == user.id)
+    )).scalar_one_or_none()
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
     station.enabled = not station.enabled
@@ -289,19 +339,23 @@ async def api_toggle_station(station_id: int, db: AsyncSession = Depends(get_db)
 # ── API — Prices ──────────────────────────────────────────────────────────────
 
 @app.post("/api/refresh")
-async def api_refresh_all(db: AsyncSession = Depends(get_db)):
-    statuses = await refresh_all(db)
+async def api_refresh_all(db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    statuses = await refresh_all(db, user_id=user.id)
     async with AsyncSessionLocal() as db2:
-        settings = await _load_settings(db2)
-        if settings.get("notifications_enabled") and settings.get("notify_on_refresh"):
-            await send_daily_summary(db2)
-        await check_and_notify_thresholds(db2)
+        fresh_user = (await db2.execute(select(User).where(User.id == user.id))).scalar_one_or_none()
+        if fresh_user:
+            s = await _load_settings(db2, fresh_user)
+            if s.get("notifications_enabled") and s.get("notify_on_refresh"):
+                await send_daily_summary(db2, fresh_user)
+            await check_and_notify_thresholds(db2, fresh_user)
     return statuses
 
 
 @app.post("/api/stations/{station_id}/refresh")
-async def api_refresh_station(station_id: int, db: AsyncSession = Depends(get_db)):
-    station = (await db.execute(select(Station).where(Station.id == station_id))).scalar_one_or_none()
+async def api_refresh_station(station_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    station = (await db.execute(
+        select(Station).where(Station.id == station_id, Station.user_id == user.id)
+    )).scalar_one_or_none()
     if not station:
         raise HTTPException(status_code=404, detail="Station not found")
 
@@ -312,13 +366,15 @@ async def api_refresh_station(station_id: int, db: AsyncSession = Depends(get_db
             db.add(GasPrice(station_id=station.id, fuel_type=pr.fuel_type, price=pr.price, fetched_at=now))
         await db.commit()
 
-    return {"success": bool(prices), "prices_updated": len(prices), "error": error}
+    return {"success": bool(prices), "prices_updated": len(prices), "station_name": station.name, "error": error}
 
 
 @app.get("/api/prices/best")
-async def api_best_prices(db: AsyncSession = Depends(get_db)):
-    latest = await _latest_prices_map(db)
-    stations_q = await db.execute(select(Station).where(Station.enabled == True))
+async def api_best_prices(db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    latest = await _latest_prices_map(db, user.id)
+    stations_q = await db.execute(
+        select(Station).where(Station.user_id == user.id, Station.enabled == True)
+    )
     stations = {s.id: s for s in stations_q.scalars().all()}
 
     best: dict[str, dict] = {}
@@ -328,13 +384,7 @@ async def api_best_prices(db: AsyncSession = Depends(get_db)):
             continue
         for ft, price in info["prices"].items():
             if ft not in best or price < best[ft]["price"]:
-                best[ft] = {
-                    "fuel_type": ft,
-                    "price": price,
-                    "station_name": station.name,
-                    "station_id": sid,
-                    "fetched_at": info["last_updated"],
-                }
+                best[ft] = {"fuel_type": ft, "price": price, "station_name": station.name, "station_id": sid, "fetched_at": info["last_updated"]}
 
     fuel_order = ["regular", "midgrade", "premium", "diesel", "e85"]
     return [best[ft] for ft in fuel_order if ft in best]
@@ -346,12 +396,13 @@ async def api_price_history(
     station_id: Optional[int] = None,
     days: int = 7,
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(_require_user_api),
 ):
     since = datetime.utcnow() - timedelta(days=days)
     q = (
         select(Station.name, GasPrice.fuel_type, GasPrice.price, GasPrice.fetched_at)
         .join(Station, GasPrice.station_id == Station.id)
-        .where(GasPrice.fetched_at >= since)
+        .where(Station.user_id == user.id, GasPrice.fetched_at >= since)
         .order_by(GasPrice.fetched_at)
     )
     if fuel_type:
@@ -361,12 +412,7 @@ async def api_price_history(
 
     rows = await db.execute(q)
     return [
-        {
-            "station_name": name,
-            "fuel_type": ft,
-            "price": price,
-            "fetched_at": fetched_at,
-        }
+        {"station_name": name, "fuel_type": ft, "price": price, "fetched_at": fetched_at}
         for name, ft, price, fetched_at in rows
     ]
 
@@ -374,31 +420,29 @@ async def api_price_history(
 # ── API — Settings ────────────────────────────────────────────────────────────
 
 @app.get("/api/settings")
-async def api_get_settings(db: AsyncSession = Depends(get_db)):
-    return await _load_settings(db)
+async def api_get_settings(db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    return await _load_settings(db, user)
 
 
 @app.put("/api/settings")
-async def api_update_settings(body: AppSettingsSchema, db: AsyncSession = Depends(get_db)):
+async def api_update_settings(body: AppSettingsSchema, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
     data = body.model_dump()
-    await _save_settings(db, data)
-
-    sched.update_refresh_job(data["refresh_interval_minutes"], data["refresh_enabled"])
-    sched.update_notification_job(data["notification_schedule"], data["notifications_enabled"])
-
+    await _save_settings(db, user, data)
+    sched.update_user_refresh_job(user.id, data["refresh_interval_minutes"], data["refresh_enabled"])
+    sched.update_user_notification_job(user.id, data["notification_schedule"], data["notifications_enabled"])
     return {"ok": True}
 
 
 @app.post("/api/test-notification")
-async def api_test_notification(db: AsyncSession = Depends(get_db)):
-    settings = await _load_settings(db)
+async def api_test_notification(db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
+    s = await _load_settings(db, user)
     try:
         await send_ntfy(
-            server_url=settings.get("ntfy_server_url", "https://ntfy.sh"),
-            topic=settings.get("ntfy_topic", ""),
+            server_url=s.get("ntfy_server_url", "https://ntfy.sh"),
+            topic=s.get("ntfy_topic", ""),
             title="Gas Price Tracker - Test",
             message="If you see this, notifications are working correctly! ⛽",
-            token=settings.get("ntfy_token") or None,
+            token=s.get("ntfy_token") or None,
         )
         return {"ok": True}
     except Exception as exc:
