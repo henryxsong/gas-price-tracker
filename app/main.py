@@ -163,6 +163,25 @@ async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
             s = await _load_settings(db, user)
             sched.update_user_refresh_job(user.id, s.get("refresh_interval_minutes", 60), s.get("refresh_enabled", True))
             sched.update_user_notification_job(user.id, s.get("notification_schedule", "0 8 * * *"), s.get("notifications_enabled", False))
+
+            station_count = (await db.execute(
+                select(func.count()).select_from(Station).where(Station.user_id == user.id)
+            )).scalar_one()
+            if station_count == 0:
+                tulalip = Station(user_id=user.id, name="Tulalip Market", type="tulalip", enabled=True)
+                db.add(tulalip)
+                await db.commit()
+                await db.refresh(tulalip)
+                try:
+                    prices, _ = await refresh_station(tulalip)
+                    if prices:
+                        now = datetime.utcnow()
+                        for pr in prices:
+                            db.add(GasPrice(station_id=tulalip.id, fuel_type=pr.fuel_type, price=pr.price, fetched_at=now))
+                        await db.commit()
+                except Exception:
+                    pass
+
         return response
     except Exception as exc:
         logger.exception("OAuth callback error: %s", exc)
