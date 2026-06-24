@@ -54,7 +54,7 @@
         'e85':      'E85'
       } %}
       {% for bp in best_prices %}
-      <div class="price-card fuel-{{ bp.fuel_type }} bg-gray-800 border rounded-xl p-5 flex flex-col gap-2">
+      <div class="price-card fuel-{{ bp.fuel_type }} bg-gray-800 border rounded-xl p-3 sm:p-5 flex flex-col gap-2">
         <div class="flex items-center justify-between">
           <span class="text-xs font-semibold text-gray-400 uppercase tracking-wide">
             {{ fuel_labels.get(bp.fuel_type, bp.fuel_type) }}
@@ -63,8 +63,8 @@
             BEST
           </span>
         </div>
-        <div class="text-3xl font-bold text-white tracking-tight">
-          ${{ ("%.3f"|format(bp.price))[:-1] }}<sup class="text-lg" style="vertical-align: 0.35em;">{{ ("%.3f"|format(bp.price))[-1] }}</sup>
+        <div class="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+          ${{ ("%.3f"|format(bp.price))[:-1] }}<sup class="text-base sm:text-lg" style="vertical-align: 0.35em;">{{ ("%.3f"|format(bp.price))[-1] }}</sup>
         </div>
         <div class="text-xs text-gray-400 truncate">
           📍 <a href="javascript:void(0)"
@@ -161,11 +161,11 @@
 
   <!-- ── Price history chart ─────────────────────────────────────────────── -->
   <section>
-    <div class="flex items-center justify-between mb-3">
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
       <h2 class="text-xs font-semibold text-gray-500 uppercase tracking-wider">
         Price History
       </h2>
-      <div class="flex gap-2 text-xs">
+      <div class="flex flex-wrap gap-2 text-xs">
         {% set fuel_labels = {'regular':'Regular','midgrade':'Mid-Grade','premium':'Premium','diesel':'Diesel','e85':'E85'} %}
         {% for ft in fuel_order %}
         <button onclick="toggleFuel('{{ ft }}')"
@@ -191,7 +191,8 @@
 
   <!-- ── Toast ───────────────────────────────────────────────────────────── -->
   <div id="toast"
-       class="fixed bottom-6 right-6 bg-gray-800 border border-gray-700 text-white text-sm
+       class="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:w-auto
+              bg-gray-800 border border-gray-700 text-white text-sm
               px-4 py-3 rounded-lg shadow-lg transition-all duration-300 translate-y-20 opacity-0 pointer-events-none">
   </div>
 

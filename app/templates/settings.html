@@ -170,13 +170,13 @@
         </div>
         <div>
           <label class="block text-sm text-gray-300 mb-1">Daily summary schedule <span class="text-gray-500">(cron)</span></label>
-          <div class="flex gap-2">
+          <div class="flex flex-col sm:flex-row gap-2">
             <input id="notification_schedule" type="text" value="{{ settings.notification_schedule }}"
                    placeholder="0 8 * * *"
                    class="flex-1 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
                           placeholder-gray-600 focus:outline-none focus:border-blue-500 font-mono" />
             <select onchange="document.getElementById('notification_schedule').value=this.value"
-                    class="bg-gray-900 border border-gray-700 text-gray-400 text-xs rounded-lg px-2 py-2 focus:outline-none">
+                    class="w-full sm:w-auto bg-gray-900 border border-gray-700 text-gray-400 text-xs rounded-lg px-2 py-2 focus:outline-none">
               <option value="">presets</option>
               <option value="0 7 * * *">7:00 AM daily</option>
               <option value="0 8 * * *">8:00 AM daily</option>
@@ -223,26 +223,28 @@
         <!-- Populated by JS -->
       </div>
 
-      <div class="flex flex-wrap gap-2 items-end">
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Fuel type</label>
-          <select id="new-threshold-fuel"
-                  class="bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
-            <option value="regular">Regular</option>
-            <option value="midgrade">Mid-Grade</option>
-            <option value="premium">Premium</option>
-            <option value="diesel">Diesel</option>
-            <option value="e85">E85</option>
-          </select>
-        </div>
-        <div>
-          <label class="block text-xs text-gray-400 mb-1">Price ($)</label>
-          <input id="new-threshold-price" type="number" step="0.001" min="0" placeholder="4.199"
-                 class="w-32 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
-                        focus:outline-none focus:border-blue-500" />
+      <div class="flex flex-col sm:flex-row sm:flex-wrap sm:items-end gap-3">
+        <div class="flex flex-col sm:flex-row gap-3 flex-1">
+          <div class="flex-1 sm:flex-none">
+            <label class="block text-xs text-gray-400 mb-1">Fuel type</label>
+            <select id="new-threshold-fuel"
+                    class="w-full sm:w-auto bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+              <option value="regular">Regular</option>
+              <option value="midgrade">Mid-Grade</option>
+              <option value="premium">Premium</option>
+              <option value="diesel">Diesel</option>
+              <option value="e85">E85</option>
+            </select>
+          </div>
+          <div class="flex-1 sm:flex-none">
+            <label class="block text-xs text-gray-400 mb-1">Price ($)</label>
+            <input id="new-threshold-price" type="number" step="0.001" min="0" placeholder="4.199"
+                   class="w-full sm:w-32 bg-gray-900 border border-gray-700 text-white text-sm rounded-lg px-3 py-2
+                          focus:outline-none focus:border-blue-500" />
+          </div>
         </div>
         <button onclick="addThreshold()"
-                class="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+                class="w-full sm:w-auto px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
           Add Alert
         </button>
       </div>
@@ -251,7 +253,8 @@
 
   <!-- ── Toast ──────────────────────────────────────────────────────────── -->
   <div id="toast"
-       class="fixed bottom-6 right-6 bg-gray-800 border border-gray-700 text-white text-sm
+       class="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:bottom-6 sm:w-auto
+              bg-gray-800 border border-gray-700 text-white text-sm
               px-4 py-3 rounded-lg shadow-lg transition-all duration-300 translate-y-20 opacity-0 pointer-events-none">
   </div>
 
