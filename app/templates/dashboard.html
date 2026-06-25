@@ -200,7 +200,15 @@
           {% for s in stations %}
           <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-colors">
             <td class="px-4 py-3">
-              <div class="font-medium text-white">{{ s.name }}</div>
+              <div class="font-medium text-white">
+                {% if s.address %}
+                <a href="javascript:void(0)"
+                   onclick="openMap({{ s.name | tojson }}, {{ s.address | tojson }})"
+                   class="hover:text-blue-400 transition-colors">{{ s.name }}</a>
+                {% else %}
+                {{ s.name }}
+                {% endif %}
+              </div>
               {% if s.address %}
               <div class="text-xs text-gray-500">{{ s.address }}</div>
               {% endif %}
@@ -464,10 +472,17 @@ function openMap(name, address) {
   const query = address ? `${name}, ${address}` : name;
   const encoded = encodeURIComponent(query);
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  const isMobile = /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
   const url = isIOS
     ? `https://maps.apple.com/?q=${encoded}`
     : `https://maps.google.com/?q=${encoded}`;
-  window.open(url, '_blank');
+  // On mobile, use location.href so the OS can deep-link into the Maps app.
+  // window.open(_blank) opens a browser tab and bypasses the native app handler.
+  if (isMobile) {
+    window.location.href = url;
+  } else {
+    window.open(url, '_blank');
+  }
 }
 
 // Load chart on page ready
