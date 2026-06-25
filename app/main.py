@@ -22,14 +22,9 @@ from models import GasPrice, Station, User, UserSetting
 from notifications import check_and_notify_thresholds, send_daily_summary, send_ntfy
 from schemas import (
     AppSettingsSchema,
-    BestPrice,
-    PriceHistoryPoint,
     RecommendRequest,
-    RefreshResult,
     StationCreate,
-    StationOut,
     StationSearchRequest,
-    StationSearchResult,
 )
 from scrapers.manager import refresh_all, refresh_station, search_stations
 
@@ -84,7 +79,7 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         # Backfill address on existing Tulalip Market stations that have none
         tulalip_stations = (await db.execute(
-            select(Station).where(Station.type == "tulalip", Station.address == None)
+            select(Station).where(Station.type == "tulalip", Station.address.is_(None))
         )).scalars().all()
         for st in tulalip_stations:
             st.address = "2832 116th Street NE, Tulalip, WA 98271"
@@ -321,7 +316,7 @@ async def auth_logout(request: Request):
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, db: AsyncSession = Depends(get_db), user: User = Depends(_require_user)):
     stations_q = await db.execute(
-        select(Station).where(Station.user_id == user.id, Station.enabled == True)
+        select(Station).where(Station.user_id == user.id, Station.enabled)
     )
     stations = stations_q.scalars().all()
 
@@ -529,7 +524,7 @@ async def api_refresh_station(station_id: int, db: AsyncSession = Depends(get_db
 async def api_best_prices(db: AsyncSession = Depends(get_db), user: User = Depends(_require_user_api)):
     latest = await _latest_prices_map(db, user.id)
     stations_q = await db.execute(
-        select(Station).where(Station.user_id == user.id, Station.enabled == True)
+        select(Station).where(Station.user_id == user.id, Station.enabled)
     )
     stations = {s.id: s for s in stations_q.scalars().all()}
 
@@ -688,7 +683,7 @@ async def api_recommend(
         )
 
     stations_q = await db.execute(
-        select(Station).where(Station.user_id == user.id, Station.enabled == True)
+        select(Station).where(Station.user_id == user.id, Station.enabled)
     )
     stations = stations_q.scalars().all()
     latest = await _latest_prices_map(db, user.id)

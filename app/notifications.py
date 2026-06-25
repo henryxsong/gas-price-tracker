@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from models import GasPrice, Station, User, UserSetting
+from models import GasPrice, Station, User
 
 FUEL_EMOJI = {
     "regular": "⛽",
@@ -70,7 +70,7 @@ async def _latest_prices(db: AsyncSession, user_id: int) -> list[tuple[str, str,
             & (GasPrice.fuel_type == subq.c.fuel_type)
             & (GasPrice.fetched_at == subq.c.max_at),
         )
-        .where(Station.user_id == user_id, Station.enabled == True)
+        .where(Station.user_id == user_id, Station.enabled)
         .order_by(GasPrice.fuel_type, GasPrice.price)
     )
     rows = await db.execute(q)
