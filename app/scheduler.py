@@ -31,7 +31,6 @@ async def _do_refresh_user(user_id: int) -> None:
         logger.info("Scheduled refresh for user %d: %s", user_id, statuses)
 
         import json
-        from models import UserSetting
         await db.refresh(user, ["setting"])
         settings = json.loads(user.setting.value) if user.setting else {}
 
