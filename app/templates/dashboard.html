@@ -24,18 +24,101 @@
         {% endif %}
       </p>
     </div>
-    <button id="refresh-btn"
-            onclick="refreshAll()"
-            class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500
-                   text-white text-sm font-medium rounded-lg transition-colors">
-      <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none"
-           viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-        <path stroke-linecap="round" stroke-linejoin="round"
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0
-                 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-      </svg>
-      Refresh Now
-    </button>
+    <div class="flex items-center gap-2">
+      <button onclick="openFillupModal()"
+              class="flex items-center gap-2 px-4 py-2 bg-gray-700 hover:bg-gray-600
+                     text-white text-sm font-medium rounded-lg transition-colors">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none"
+             viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        Smart Fill-Up
+      </button>
+      <button id="refresh-btn"
+              onclick="refreshAll()"
+              class="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500
+                     text-white text-sm font-medium rounded-lg transition-colors">
+        <svg id="refresh-icon" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none"
+             viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0
+                   0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+        </svg>
+        Refresh Now
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Smart Fill-Up Modal ─────────────────────────────────────────────── -->
+  <div id="fillup-modal"
+       class="fixed inset-0 z-50 hidden items-center justify-center p-4 bg-black/60"
+       onclick="if(event.target===this)closeFillupModal()">
+    <div class="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+
+      <!-- Header -->
+      <div class="flex items-center justify-between p-5 border-b border-gray-800">
+        <div>
+          <h2 class="text-lg font-bold text-white">Smart Fill-Up</h2>
+          <p class="text-xs text-gray-400 mt-0.5">Best cost when accounting for driving distance</p>
+        </div>
+        <button onclick="closeFillupModal()"
+                class="text-gray-500 hover:text-white transition-colors text-2xl leading-none">&times;</button>
+      </div>
+
+      <!-- Inputs -->
+      <div class="p-5 space-y-5">
+
+        <!-- Location status -->
+        <div id="location-status" class="flex items-center gap-2 text-sm text-gray-400">
+          <span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse shrink-0"></span>
+          Detecting your location…
+        </div>
+
+        <!-- Gas level slider -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium text-white">Current Tank Level</label>
+            <span id="gas-pct-display" class="text-sm font-bold text-blue-400">25%</span>
+          </div>
+          <input type="range" id="gas-pct" min="0" max="95" step="5" value="25"
+                 oninput="document.getElementById('gas-pct-display').textContent = this.value + '%'"
+                 class="w-full accent-blue-500 cursor-pointer" />
+          <div class="flex justify-between text-xs text-gray-600 mt-1">
+            <span>Empty</span>
+            <span>Full</span>
+          </div>
+        </div>
+
+        <!-- Fuel type -->
+        <div>
+          <label class="block text-sm font-medium text-white mb-2">Fuel Type</label>
+          <div class="flex flex-wrap gap-2">
+            {% set fuel_labels = {'regular':'Regular','midgrade':'Mid-Grade','premium':'Premium','diesel':'Diesel','e85':'E85'} %}
+            {% for ft in fuel_order %}
+            <button onclick="selectFillFuelType('{{ ft }}')"
+                    id="fill-ft-{{ ft }}"
+                    class="px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors
+                           {% if ft == 'regular' %}bg-green-700 border-green-600 text-white fill-active{% else %}bg-gray-800 border-gray-700 text-gray-400{% endif %}">
+              {{ fuel_labels.get(ft, ft) }}
+            </button>
+            {% endfor %}
+          </div>
+        </div>
+
+        <button id="calc-btn" onclick="calculateRecommendation()"
+                class="w-full px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium rounded-lg transition-colors">
+          Find Best Deal
+        </button>
+      </div>
+
+      <!-- Results -->
+      <div id="recommend-results" class="hidden px-5 pb-5 border-t border-gray-800">
+        <div id="results-content" class="pt-4"></div>
+      </div>
+
+    </div>
   </div>
 
   <!-- ── Best prices ─────────────────────────────────────────────────────── -->
@@ -389,5 +472,165 @@ function openMap(name, address) {
 
 // Load chart on page ready
 document.addEventListener('DOMContentLoaded', () => { applyLocalTimes(); loadHistory(); });
+
+// ── Smart Fill-Up ─────────────────────────────────────────────────────────────
+let _fillLat = null, _fillLng = null;
+let _fillFuelType = 'regular';
+
+function openFillupModal() {
+  document.getElementById('fillup-modal').classList.remove('hidden');
+  document.getElementById('fillup-modal').classList.add('flex');
+  document.getElementById('recommend-results').classList.add('hidden');
+  document.getElementById('results-content').innerHTML = '';
+  _detectLocation();
+}
+
+function closeFillupModal() {
+  document.getElementById('fillup-modal').classList.add('hidden');
+  document.getElementById('fillup-modal').classList.remove('flex');
+}
+
+function _detectLocation() {
+  const status = document.getElementById('location-status');
+  if (!navigator.geolocation) {
+    status.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-400 shrink-0"></span> Geolocation not supported by this browser.';
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      _fillLat = pos.coords.latitude;
+      _fillLng = pos.coords.longitude;
+      status.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-400 shrink-0"></span> Location detected';
+    },
+    () => {
+      _fillLat = null;
+      _fillLng = null;
+      status.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-400 shrink-0"></span> Location denied — allow location access and try again.';
+    }
+  );
+}
+
+function selectFillFuelType(ft) {
+  _fillFuelType = ft;
+  document.querySelectorAll('[id^="fill-ft-"]').forEach(btn => {
+    btn.className = 'px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-gray-800 border-gray-700 text-gray-400';
+  });
+  const active = document.getElementById(`fill-ft-${ft}`);
+  if (active) active.className = 'px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors bg-green-700 border-green-600 text-white fill-active';
+}
+
+async function calculateRecommendation() {
+  if (_fillLat === null) {
+    showToast('Allow location access first, then try again.', false);
+    _detectLocation();
+    return;
+  }
+  const gasPct = parseFloat(document.getElementById('gas-pct').value);
+  const btn = document.getElementById('calc-btn');
+  btn.disabled = true;
+  btn.textContent = 'Calculating…';
+
+  try {
+    const res = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: _fillLat, lng: _fillLng, gas_pct: gasPct, fuel_type: _fillFuelType }),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.detail || 'Failed');
+    }
+    _renderRecommendations(await res.json());
+  } catch (e) {
+    showToast('Error: ' + e.message, false);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Find Best Deal';
+  }
+}
+
+function _esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function _renderRecommendations(results) {
+  const content = document.getElementById('results-content');
+  const section = document.getElementById('recommend-results');
+
+  if (!results.length) {
+    content.innerHTML = '<p class="text-sm text-gray-400 py-2">No stations have prices for this fuel type.</p>';
+    section.classList.remove('hidden');
+    return;
+  }
+
+  const gallons = results[0].gallons_needed;
+  const fuelLabels = { regular:'Regular', midgrade:'Mid-Grade', premium:'Premium', diesel:'Diesel', e85:'E85' };
+
+  content.innerHTML = `
+    <p class="text-xs text-gray-500 mb-3">
+      Filling ~${gallons} gal of ${fuelLabels[_fillFuelType] || _fillFuelType} · total cost = gas + round-trip driving
+    </p>
+    <div class="space-y-3">
+      ${results.map(r => {
+        const isTop = r.rank === 1;
+        const borderCls = isTop ? 'border-green-600/60 bg-green-900/20' : 'border-gray-700 bg-gray-800/50';
+        const rankCls   = isTop ? 'text-green-400' : 'text-gray-500';
+        const savings   = r.savings_vs_worst != null && r.savings_vs_worst > 0
+          ? `<span class="text-xs text-green-400">Save $${r.savings_vs_worst.toFixed(2)} vs priciest option</span>` : '';
+
+        if (!r.has_coordinates) {
+          return `
+            <div class="rounded-xl border ${borderCls} p-4">
+              <div class="flex items-center gap-2">
+                <span class="text-lg font-bold ${rankCls}">#${r.rank}</span>
+                <div>
+                  <p class="font-semibold text-white text-sm">${_esc(r.station_name)}</p>
+                  ${r.station_address ? `<p class="text-xs text-gray-400">${_esc(r.station_address)}</p>` : ''}
+                </div>
+              </div>
+              <p class="mt-2 text-xs text-gray-500">$${r.price.toFixed(3)}/gal · Fuel cost: $${r.fuel_cost.toFixed(2)} · Distance unknown (no address coordinates)</p>
+            </div>`;
+        }
+
+        return `
+          <div class="rounded-xl border ${borderCls} p-4">
+            <div class="flex items-start justify-between gap-2 mb-3">
+              <div class="flex items-start gap-2">
+                <span class="text-lg font-bold ${rankCls}">#${r.rank}</span>
+                <div>
+                  <p class="font-semibold text-white text-sm">${_esc(r.station_name)}</p>
+                  ${r.station_address ? `<p class="text-xs text-gray-400">${_esc(r.station_address)}</p>` : ''}
+                </div>
+              </div>
+              ${isTop ? '<span class="shrink-0 text-xs px-2 py-0.5 bg-green-600 text-white rounded-full font-medium">Best Deal</span>' : ''}
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div class="bg-gray-900/80 rounded-lg p-2">
+                <div class="text-gray-500 mb-0.5">Price/gal</div>
+                <div class="text-white font-bold">$${r.price.toFixed(3)}</div>
+              </div>
+              <div class="bg-gray-900/80 rounded-lg p-2">
+                <div class="text-gray-500 mb-0.5">Distance</div>
+                <div class="text-white font-bold">${r.distance_miles} mi</div>
+              </div>
+              <div class="bg-gray-900/80 rounded-lg p-2">
+                <div class="text-gray-500 mb-0.5">Fuel cost</div>
+                <div class="text-white font-bold">$${r.fuel_cost.toFixed(2)}</div>
+              </div>
+              <div class="bg-gray-900/80 rounded-lg p-2">
+                <div class="text-gray-500 mb-0.5">Drive cost</div>
+                <div class="text-white font-bold">$${r.driving_cost.toFixed(2)}</div>
+              </div>
+            </div>
+            <div class="mt-3 flex items-center justify-between">
+              <span class="text-sm font-bold text-white">Total: $${r.total_cost.toFixed(2)}</span>
+              ${savings}
+            </div>
+          </div>`;
+      }).join('')}
+    </div>`;
+
+  section.classList.remove('hidden');
+}
 </script>
 {% endblock %}

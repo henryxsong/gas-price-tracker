@@ -25,9 +25,12 @@ async def init_db():
 
 async def _migrate(conn):
     """Apply schema changes that create_all won't handle on existing tables."""
-    try:
-        await conn.execute(
-            text("ALTER TABLE stations ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
-        )
-    except Exception:
-        pass  # column already exists
+    for stmt in [
+        "ALTER TABLE stations ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE",
+        "ALTER TABLE stations ADD COLUMN latitude REAL",
+        "ALTER TABLE stations ADD COLUMN longitude REAL",
+    ]:
+        try:
+            await conn.execute(text(stmt))
+        except Exception:
+            pass  # column already exists
