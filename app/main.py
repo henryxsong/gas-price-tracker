@@ -81,8 +81,17 @@ async def _require_user_api(request: Request, db: AsyncSession = Depends(get_db)
 async def lifespan(app: FastAPI):
     await init_db()
 
-    # Restore per-user scheduler jobs for all existing users
     async with AsyncSessionLocal() as db:
+        # Backfill address on existing Tulalip Market stations that have none
+        tulalip_stations = (await db.execute(
+            select(Station).where(Station.type == "tulalip", Station.address == None)
+        )).scalars().all()
+        for st in tulalip_stations:
+            st.address = "2832 116th Street NE, Tulalip, WA 98271"
+        if tulalip_stations:
+            await db.commit()
+
+        # Restore per-user scheduler jobs for all existing users
         users = (await db.execute(select(User))).scalars().all()
         for user in users:
             s = await _load_settings(db, user)
@@ -281,7 +290,7 @@ async def auth_callback(request: Request, db: AsyncSession = Depends(get_db)):
                 select(func.count()).select_from(Station).where(Station.user_id == user.id)
             )).scalar_one()
             if station_count == 0:
-                tulalip = Station(user_id=user.id, name="Tulalip Market", type="tulalip", enabled=True)
+                tulalip = Station(user_id=user.id, name="Tulalip Market", type="tulalip", enabled=True, address="2832 116th Street NE, Tulalip, WA 98271")
                 db.add(tulalip)
                 await db.commit()
                 await db.refresh(tulalip)
