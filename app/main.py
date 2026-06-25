@@ -139,6 +139,53 @@ async def _latest_prices_map(db: AsyncSession, user_id: int) -> dict[int, dict]:
     return result
 
 
+async def _previous_prices_map(db: AsyncSession, user_id: int) -> dict[int, dict[str, float]]:
+    """Return {station_id: {fuel_type: price}} for the second-most-recent fetch per station+fuel."""
+    subq_latest = (
+        select(
+            GasPrice.station_id,
+            GasPrice.fuel_type,
+            func.max(GasPrice.fetched_at).label("max_at"),
+        )
+        .join(Station, GasPrice.station_id == Station.id)
+        .where(Station.user_id == user_id)
+        .group_by(GasPrice.station_id, GasPrice.fuel_type)
+        .subquery()
+    )
+    subq_prev = (
+        select(
+            GasPrice.station_id,
+            GasPrice.fuel_type,
+            func.max(GasPrice.fetched_at).label("prev_at"),
+        )
+        .join(Station, GasPrice.station_id == Station.id)
+        .join(
+            subq_latest,
+            (GasPrice.station_id == subq_latest.c.station_id)
+            & (GasPrice.fuel_type == subq_latest.c.fuel_type)
+            & (GasPrice.fetched_at < subq_latest.c.max_at),
+        )
+        .where(Station.user_id == user_id)
+        .group_by(GasPrice.station_id, GasPrice.fuel_type)
+        .subquery()
+    )
+    rows = await db.execute(
+        select(GasPrice.station_id, GasPrice.fuel_type, GasPrice.price)
+        .join(
+            subq_prev,
+            (GasPrice.station_id == subq_prev.c.station_id)
+            & (GasPrice.fuel_type == subq_prev.c.fuel_type)
+            & (GasPrice.fetched_at == subq_prev.c.prev_at),
+        )
+    )
+    result: dict[int, dict[str, float]] = {}
+    for sid, ft, price in rows:
+        if sid not in result:
+            result[sid] = {}
+        result[sid][ft] = price
+    return result
+
+
 # ── Auth routes ───────────────────────────────────────────────────────────────
 
 @app.get("/login", response_class=HTMLResponse)
@@ -204,16 +251,25 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db), user: 
     stations = stations_q.scalars().all()
 
     latest = await _latest_prices_map(db, user.id)
+    previous = await _previous_prices_map(db, user.id)
 
     stations_out = []
     for s in stations:
         info = latest.get(s.id, {})
+        prev = previous.get(s.id, {})
+        prices = info.get("prices", {})
+        deltas = {
+            ft: round(prices[ft] - prev[ft], 3)
+            for ft in prices
+            if ft in prev
+        }
         stations_out.append({
             "id": s.id,
             "name": s.name,
             "type": s.type,
             "address": s.address,
-            "prices": info.get("prices", {}),
+            "prices": prices,
+            "deltas": deltas,
             "last_updated": info.get("last_updated"),
         })
 
@@ -221,7 +277,13 @@ async def dashboard(request: Request, db: AsyncSession = Depends(get_db), user: 
     for s in stations_out:
         for ft, price in s["prices"].items():
             if ft not in best or price < best[ft]["price"]:
-                best[ft] = {"price": price, "station_name": s["name"], "station_id": s["id"], "station_address": s["address"]}
+                best[ft] = {
+                    "price": price,
+                    "delta": s["deltas"].get(ft),
+                    "station_name": s["name"],
+                    "station_id": s["id"],
+                    "station_address": s["address"],
+                }
 
     fuel_order = ["regular", "midgrade", "premium", "diesel", "e85"]
     best_prices = [{"fuel_type": ft, **best[ft]} for ft in fuel_order if ft in best]

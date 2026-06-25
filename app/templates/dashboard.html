@@ -66,6 +66,11 @@
         <div class="text-2xl sm:text-3xl font-bold text-white tracking-tight">
           ${{ ("%.3f"|format(bp.price))[:-1] }}<sup class="text-base sm:text-lg" style="vertical-align: 0.35em;">{{ ("%.3f"|format(bp.price))[-1] }}</sup>
         </div>
+        {% if bp.delta is not none and bp.delta != 0 %}
+        <div class="text-xs font-semibold {% if bp.delta < 0 %}text-green-400{% else %}text-red-400{% endif %}">
+          {% if bp.delta < 0 %}↓ ${{ "%.3f"|format(bp.delta|abs) }}{% else %}↑ ${{ "%.3f"|format(bp.delta) }}{% endif %}
+        </div>
+        {% endif %}
         <div class="text-xs text-gray-400 truncate">
           📍 <a href="javascript:void(0)"
                onclick="openMap({{ bp.station_name | tojson }}, {{ (bp.station_address or '') | tojson }})"
@@ -120,7 +125,13 @@
             {% for ft in fuel_order %}
             <td class="px-4 py-3 text-right hidden sm:table-cell">
               {% if ft in s.prices %}
-              <span class="font-mono font-semibold text-white">${{ ("%.3f"|format(s.prices[ft]))[:-1] }}<sup>{{ ("%.3f"|format(s.prices[ft]))[-1] }}</sup></span>
+              <div class="font-mono font-semibold text-white">${{ ("%.3f"|format(s.prices[ft]))[:-1] }}<sup>{{ ("%.3f"|format(s.prices[ft]))[-1] }}</sup></div>
+              {% if ft in s.deltas and s.deltas[ft] != 0 %}
+                {% set d = s.deltas[ft] %}
+                <div class="text-xs {% if d < 0 %}text-green-400{% else %}text-red-400{% endif %}">
+                  {% if d < 0 %}↓ {{ "%.3f"|format(d|abs) }}{% else %}↑ {{ "%.3f"|format(d) }}{% endif %}
+                </div>
+              {% endif %}
               {% else %}
               <span class="text-gray-600">—</span>
               {% endif %}
