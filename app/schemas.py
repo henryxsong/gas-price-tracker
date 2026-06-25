@@ -66,6 +66,16 @@ class AppSettingsSchema(BaseModel):
     notification_schedule: str = "0 8 * * *"
     notify_on_refresh: bool = False
     price_thresholds: list[dict] = []
+    vehicle_name: str = ""
+    vehicle_mpg: float = 0.0
+    vehicle_tank_gallons: float = 0.0
+
+
+class RecommendRequest(BaseModel):
+    lat: float
+    lng: float
+    gas_pct: float
+    fuel_type: str = "regular"
 
 
 class RefreshResult(BaseModel):
