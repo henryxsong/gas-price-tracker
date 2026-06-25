@@ -155,8 +155,8 @@
         </div>
         {% endif %}
         <div class="text-xs text-gray-400 truncate">
-          📍 <a href="javascript:void(0)"
-               onclick="openMap({{ bp.station_name | tojson }}, {{ (bp.station_address or '') | tojson }})"
+          📍 <a data-map-name="{{ bp.station_name }}" data-map-address="{{ bp.station_address or '' }}"
+               href="#"
                class="hover:text-blue-400 underline underline-offset-2 transition-colors">
             {{ bp.station_name }}
           </a>
@@ -202,8 +202,8 @@
             <td class="px-4 py-3">
               <div class="font-medium text-white">
                 {% if s.address %}
-                <a href="javascript:void(0)"
-                   onclick="openMap({{ s.name | tojson }}, {{ s.address | tojson }})"
+                <a data-map-name="{{ s.name }}" data-map-address="{{ s.address }}"
+                   href="#"
                    class="hover:text-blue-400 transition-colors">{{ s.name }}</a>
                 {% else %}
                 {{ s.name }}
@@ -468,25 +468,26 @@ function applyLocalTimes() {
 }
 
 // ── Maps link ─────────────────────────────────────────────────────────────────
-function openMap(name, address) {
-  const query = address ? `${name}, ${address}` : name;
-  const encoded = encodeURIComponent(query);
+function initMapLinks() {
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
-  const isMobile = /iPhone|iPad|iPod|Android/.test(navigator.userAgent);
-  const url = isIOS
-    ? `https://maps.apple.com/?q=${encoded}`
-    : `https://maps.google.com/?q=${encoded}`;
-  // On mobile, use location.href so the OS can deep-link into the Maps app.
-  // window.open(_blank) opens a browser tab and bypasses the native app handler.
-  if (isMobile) {
-    window.location.href = url;
-  } else {
-    window.open(url, '_blank');
-  }
+  const isAndroid = /Android/.test(navigator.userAgent);
+  document.querySelectorAll('[data-map-name]').forEach(el => {
+    const query = [el.dataset.mapName, el.dataset.mapAddress].filter(Boolean).join(', ');
+    const encoded = encodeURIComponent(query);
+    if (isIOS) {
+      el.href = `maps://?q=${encoded}`;
+    } else if (isAndroid) {
+      el.href = `geo:0,0?q=${encoded}`;
+    } else {
+      el.href = `https://maps.google.com/?q=${encoded}`;
+      el.target = '_blank';
+      el.rel = 'noopener';
+    }
+  });
 }
 
 // Load chart on page ready
-document.addEventListener('DOMContentLoaded', () => { applyLocalTimes(); loadHistory(); });
+document.addEventListener('DOMContentLoaded', () => { applyLocalTimes(); loadHistory(); initMapLinks(); });
 
 // ── Smart Fill-Up ─────────────────────────────────────────────────────────────
 let _fillLat = null, _fillLng = null;
