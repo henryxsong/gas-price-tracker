@@ -692,9 +692,9 @@ async def api_recommend(
         if price is None:
             continue
 
-        # Lazily geocode and cache coordinates
-        if station.latitude is None and station.address:
-            coords = await _geocode(station.address)
+        # Lazily geocode and cache coordinates; fall back to name if no address
+        if station.latitude is None:
+            coords = await _geocode(station.address or station.name)
             if coords:
                 station.latitude, station.longitude = coords
                 await db.commit()
